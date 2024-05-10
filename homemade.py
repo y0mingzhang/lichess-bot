@@ -140,8 +140,9 @@ class LMEngine(MinimalEngine):
         send_dict(conn, game.to_dict())
         data = recv_dict(conn)
         logger.info(f"received {data}")
+        resigned = data.get("resigned", False)
         if data.get("think_time") is not None:
             info = {"think_time": data["think_time"]}
         else:
             info = {}
-        return PlayResult(chess.Move.from_uci(data["move"]), None, info=info)
+        return PlayResult(chess.Move.from_uci(data["move"]), None, resigned=resigned, info=info)
