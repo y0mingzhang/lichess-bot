@@ -88,6 +88,7 @@ class Conversation:
 
     def send_message(self, room: str, message: str) -> None:
         """Send the message to the chat."""
+        assert len(message) <= 140
         if message:
             self.send_reply(ChatLine({"room": room, "username": "", "text": ""}), message)
 

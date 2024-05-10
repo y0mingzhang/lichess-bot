@@ -33,6 +33,10 @@ from http.client import RemoteDisconnected
 from queue import Queue, Empty
 from multiprocessing.pool import Pool
 from typing import Any, Optional, Union
+from utils import say_welcome, read_user, write_user, send_survey
+from server.utils import SYSTEMS
+import random
+
 USER_PROFILE_TYPE = dict[str, Any]
 EVENT_TYPE = dict[str, Any]
 PLAY_GAME_ARGS_TYPE = dict[str, Any]
@@ -608,7 +612,20 @@ def play_game(li: LICHESS_TYPE,
     logger.debug(f"Initial state: {initial_state}")
     abort_time = seconds(config.abort_time)
     game = model.Game(initial_state, user_profile["username"], li.baseUrl, abort_time)
-
+    user = read_user(game.opponent.name)
+    should_record_game = True
+    system_not_played = [system_alias for system_alias in SYSTEMS if system_alias not in user.system_order]
+    if system_not_played:
+        # randomly choose a system that the user hasn't played against
+        system_alias = random.choice(list(system_not_played))
+        logger.info(f"Player has not played against systems {system_not_played}. Randomly chose {system_alias}")
+    else:
+        # user has played against all systems -- randomly choose one from all
+        system_alias = random.choice(list(SYSTEMS))
+        logger.info(f"Player already played against all systems. Randomly chose {system_alias}")
+        
+    config.config["engine"]["homemade_options"]["system_alias"] = system_alias
+    
     with engine_wrapper.create_engine(config, game) as engine:
         engine.get_opponent_info(game)
         logger.debug(f"The engine for game {game_id} has pid={engine.get_pid()}")
@@ -630,12 +647,6 @@ def play_game(li: LICHESS_TYPE,
         takebacks_accepted = read_takeback_record(game)
         max_takebacks_accepted = config.max_takebacks_accepted
 
-        keyword_map: defaultdict[str, str] = defaultdict(str, me=game.me.name, opponent=game.opponent.name)
-        hello = get_greeting("hello", config.greeting, keyword_map)
-        goodbye = get_greeting("goodbye", config.greeting, keyword_map)
-        hello_spectators = get_greeting("hello_spectators", config.greeting, keyword_map)
-        goodbye_spectators = get_greeting("goodbye_spectators", config.greeting, keyword_map)
-
         disconnect_time = correspondence_disconnect_time if not game.state.get("moves") else seconds(0)
         prior_game = None
         board = chess.Board()
@@ -655,7 +666,8 @@ def play_game(li: LICHESS_TYPE,
                     takeback_field = f'{"b" if game.is_white else "w"}takeback'
                     if not is_game_over(game) and is_engine_move(game, prior_game, board):
                         disconnect_time = correspondence_disconnect_time
-                        say_hello(conversation, hello, hello_spectators, board)
+                        if len(board.move_stack) < 2:
+                            say_welcome(conversation, game.opponent.name, user)
                         setup_timer = Timer()
                         print_move_number(board)
                         move_attempted = True
@@ -673,8 +685,15 @@ def play_game(li: LICHESS_TYPE,
                     elif is_game_over(game):
                         tell_user_game_result(game, board)
                         engine.send_game_result(game, board)
-                        conversation.send_message("player", goodbye)
-                        conversation.send_message("spectator", goodbye_spectators)
+                        if user is not None:
+                            termination = game.state.get("status")
+                            if termination != model.Termination.ABORT and len(board.move_stack) >= 8:
+                                send_survey(conversation, game_id)
+                                user.games.append(game_id)
+                                user.system_order.append(system_alias)
+                                write_user(user)
+                                logger.info(f"Game {game_id} complete. Updated user {user} in DB.")
+
                     elif (game.state.get(takeback_field)
                             and not bot_to_move(game, board)
                             and li.accept_takeback(game.id, takebacks_accepted < max_takebacks_accepted)):
@@ -693,6 +712,7 @@ def play_game(li: LICHESS_TYPE,
                 stay_in_game = not stopped and (move_attempted or game_is_active(li, game.id))
 
         pgn_record = try_get_pgn_game_record(li, config, game, board, engine)
+        
     final_queue_entries(control_queue, correspondence_queue, game, is_correspondence, pgn_record)
     delete_takeback_record(game)
 

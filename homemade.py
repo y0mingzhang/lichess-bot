@@ -8,10 +8,23 @@ from __future__ import annotations
 import chess
 from chess.engine import PlayResult, Limit
 import random
-from lib.engine_wrapper import MinimalEngine, MOVE
+from lib.engine_wrapper import MinimalEngine, MOVE, COMMANDS_TYPE, OPTIONS_TYPE
 from typing import Any
 import logging
 
+import socket
+import chess.engine
+import chess.polyglot
+import chess.syzygy
+import chess.gaviota
+import chess
+from lib import model
+from lib.config import Configuration
+from typing import Optional
+
+from server.utils import send_dict, recv_dict
+from modeling.data import Game
+from server.utils import SYSTEMS, DEFAULT_SYSTEM
 
 # Use this logger variable to print messages to the console or log files.
 # logger.info("message") will always print "message" to the console or log file.
@@ -26,6 +39,7 @@ class ExampleEngine(MinimalEngine):
 
 
 # Bot names and ideas from tom7's excellent eloWorld video
+
 
 class RandomMove(ExampleEngine):
     """Get a random move."""
@@ -55,14 +69,50 @@ class FirstMove(ExampleEngine):
         return PlayResult(moves[0], None)
 
 
-class ComboEngine(ExampleEngine):
-    """
-    Get a move using multiple different methods.
 
-    This engine demonstrates how one can use `time_limit`, `draw_offered`, and `root_moves`.
-    """
+class LMEngine(MinimalEngine):
+    def __init__(
+        self,
+        commands: COMMANDS_TYPE,
+        options: OPTIONS_TYPE,
+        stderr: Optional[int],
+        draw_or_resign: Configuration,
+        game: Optional[model.Game] = None,
+        name: Optional[str] = None,
+        **popen_args: str,
+    ) -> None:
+        super().__init__(
+            commands, options, stderr, draw_or_resign, game, name, **popen_args
+        )
+        system_alias = options.get("system_alias", None)
+        if system_alias is None:
+            self.system = DEFAULT_SYSTEM
+        else:
+            assert system_alias in SYSTEMS
+            self.system = SYSTEMS[system_alias]
 
-    def search(self, board: chess.Board, time_limit: Limit, ponder: bool, draw_offered: bool, root_moves: MOVE) -> PlayResult:
+        if game is None:
+            self.game_info = {}
+        else:
+            opponent_elo = game.opponent.rating
+            self.game_info = {
+                "time_control": f"{game.clock_initial.seconds}+{game.clock_increment.seconds}",
+                "white_elo": None,
+                "black_elo": None,
+            }
+            if game.is_white:
+                self.game_info["black_elo"] = opponent_elo
+            else:
+                self.game_info["white_elo"] = opponent_elo
+
+    def search(
+        self,
+        board: chess.Board,
+        time_limit: Limit,
+        ponder: bool,
+        draw_offered: bool,
+        root_moves: MOVE,
+    ) -> PlayResult:
         """
         Choose a move using multiple different methods.
 
@@ -73,23 +123,25 @@ class ComboEngine(ExampleEngine):
         :param root_moves: If it is a list, the engine should only play a move that is in `root_moves`.
         :return: The move to play.
         """
-        if isinstance(time_limit.time, int):
-            my_time = time_limit.time
-            my_inc = 0
-        elif board.turn == chess.WHITE:
-            my_time = time_limit.white_clock if isinstance(time_limit.white_clock, int) else 0
-            my_inc = time_limit.white_inc if isinstance(time_limit.white_inc, int) else 0
+        port = self.system.port
+        conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        conn.connect(("localhost", port))
+        logger.info(f"listening on port {port}")
+        game = Game(
+            self.game_info["time_control"],
+            self.game_info["white_elo"],
+            self.game_info["black_elo"],
+            None,
+            False,
+            [m.uci() for m in board.move_stack],
+            [0] * len(board.move_stack),
+        )
+        logger.info(f"sent {game.to_dict()}")
+        send_dict(conn, game.to_dict())
+        data = recv_dict(conn)
+        logger.info(f"received {data}")
+        if data.get("think_time") is not None:
+            info = {"think_time": data["think_time"]}
         else:
-            my_time = time_limit.black_clock if isinstance(time_limit.black_clock, int) else 0
-            my_inc = time_limit.black_inc if isinstance(time_limit.black_inc, int) else 0
-
-        possible_moves = root_moves if isinstance(root_moves, list) else list(board.legal_moves)
-
-        if my_time / 60 + my_inc > 10:
-            # Choose a random move.
-            move = random.choice(possible_moves)
-        else:
-            # Choose the first move alphabetically in uci representation.
-            possible_moves.sort(key=str)
-            move = possible_moves[0]
-        return PlayResult(move, None, draw_offered=draw_offered)
+            info = {}
+        return PlayResult(chess.Move.from_uci(data["move"]), None, info=info)

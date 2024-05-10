@@ -189,11 +189,25 @@ class EngineWrapper:
                     game_ender = li.abort if game.is_abortable() else li.resign
                     game_ender(game.id)
                 raise
-
-        # Heed min_time
-        elapsed = setup_timer.time_since_reset()
-        if elapsed < min_time:
-            time.sleep(to_seconds(min_time - elapsed))
+        
+        if "think_time" in best_move.info:
+            if len(board.move_stack) < 4:
+                best_move.info["think_time"] = min(best_move.info["think_time"], 2.0)
+            think_time = seconds(best_move.info["think_time"])
+            elapsed = setup_timer.time_since_reset()
+            if think_time > elapsed:
+                time.sleep(to_seconds(think_time - elapsed))
+                logger.info(f"engine thought for {best_move.info['think_time']:.1f} seconds before the move")
+            else:
+                logger.info(f"engine wants to think for {best_move.info['think_time']:.1f} seconds before the move," + 
+                            f" but {to_seconds(elapsed):.1f} has elapsed")
+        
+        else:
+            # Heed min_time
+            elapsed = setup_timer.time_since_reset()
+            if elapsed < min_time:
+                logger.info(f"engine did not provide think time, fake thinking")
+                time.sleep(to_seconds(min_time - elapsed))
 
         self.add_comment(best_move, board)
         self.print_stats()
