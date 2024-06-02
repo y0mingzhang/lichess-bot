@@ -30,12 +30,12 @@ def read_user(user_id: str) -> User:
 
 
 def say_welcome(conversation: Conversation, opponent: str, user: User) -> None:
-    admin = "AllieTheChessBot" + "@" + "gmail.com"
+    admin = "@yimingz3"
     welcome_msgs = [
-        f"Hello {opponent}! Thanks for participating in this study.",
+        f"Hello {opponent}!",
         "You are playing against Allie, a chessbot who tries her best to play the same way a human player would.",
         "After your game session, please take a minute to fill out our survey.",
-        "Also, please try to play at least 3 games, as we change Allie's configuration between games.",
+        "Also, please try to play at least 4 games, as we change Allie's configuration between games.",
         f"If you have questions or feedback, please send a message to [{admin}].",
     ]
 
@@ -45,7 +45,7 @@ def say_welcome(conversation: Conversation, opponent: str, user: User) -> None:
 
 def send_survey(conversation: Conversation, game_id: str) -> None:
     survey_msgs = [
-        "Thanks for completing this game.",
+        "Thanks for playing!",
         "We would really appreciate your feedback of our system through a survey, which should take around a minute.",
         f"If you are interested, please copy the game ID {game_id} and fill out [forms.gle/AeBMxvkxui92Kuiq9].",
     ]
