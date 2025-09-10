@@ -33,7 +33,7 @@ from http.client import RemoteDisconnected
 from queue import Queue, Empty
 from multiprocessing.pool import Pool
 from typing import Any, Optional, Union
-from utils import say_welcome, read_user, write_user, send_survey
+from utils import say_welcome
 from server.utils import SYSTEMS
 import random
 
@@ -612,17 +612,8 @@ def play_game(li: LICHESS_TYPE,
     logger.debug(f"Initial state: {initial_state}")
     abort_time = seconds(config.abort_time)
     game = model.Game(initial_state, user_profile["username"], li.baseUrl, abort_time)
-    user = read_user(game.opponent.name)
-    should_record_game = True
-    system_not_played = [system_alias for system_alias in SYSTEMS if system_alias not in user.system_order]
-    if system_not_played:
-        # randomly choose a system that the user hasn't played against
-        system_alias = random.choice(list(system_not_played))
-        logger.info(f"Player has not played against systems {system_not_played}. Randomly chose {system_alias}")
-    else:
-        # user has played against all systems -- randomly choose one from all
-        system_alias = random.choice(list(SYSTEMS))
-        logger.info(f"Player already played against all systems. Randomly chose {system_alias}")
+    system_alias = random.choice(list(SYSTEMS))
+    logger.info(f"Randomly chose {system_alias}")
         
     config.config["engine"]["homemade_options"]["system_alias"] = system_alias
     
@@ -667,7 +658,7 @@ def play_game(li: LICHESS_TYPE,
                     if not is_game_over(game) and is_engine_move(game, prior_game, board):
                         disconnect_time = correspondence_disconnect_time
                         if len(board.move_stack) < 2:
-                            say_welcome(conversation, game.opponent.name, user)
+                            say_welcome(conversation, game.opponent.name)
                         setup_timer = Timer()
                         print_move_number(board)
                         move_attempted = True
@@ -685,15 +676,6 @@ def play_game(li: LICHESS_TYPE,
                     elif is_game_over(game):
                         tell_user_game_result(game, board)
                         engine.send_game_result(game, board)
-                        if user is not None:
-                            termination = game.state.get("status")
-                            if termination != model.Termination.ABORT and len(board.move_stack) >= 8:
-                                send_survey(conversation, game_id)
-                                user.games.append(game_id)
-                                user.system_order.append(system_alias)
-                                write_user(user)
-                                logger.info(f"Game {game_id} complete. Updated user {user} in DB.")
-
                     elif (game.state.get(takeback_field)
                             and not bot_to_move(game, board)
                             and li.accept_takeback(game.id, takebacks_accepted < max_takebacks_accepted)):
