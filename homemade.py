@@ -10,6 +10,11 @@ from lib.engine_wrapper import MinimalEngine
 from lib.lichess_types import MOVE, HOMEMADE_ARGS_TYPE
 import logging
 
+try:
+    from vllm_engine import VLLMEngine
+except ImportError as e:
+    logging.warning(f"Failed to import VLLMEngine: {e}")
+    VLLMEngine = None
 
 # Use this logger variable to print messages to the console or log files.
 # logger.info("message") will always print "message" to the console or log file.
@@ -94,3 +99,7 @@ class ComboEngine(ExampleEngine):
             possible_moves.sort(key=str)
             move = possible_moves[0]
         return PlayResult(move, None, draw_offered=draw_offered)
+
+
+if VLLMEngine is not None:
+    vllm_engine = VLLMEngine
