@@ -30,6 +30,8 @@ VLLM_TIMEOUT = 30
 class VLLMEngine(MinimalEngine):
     """Chess engine using VLLM HTTP API for move prediction."""
 
+    _base_logit_bias: dict[int, float] = {i: -100.0 for i in range(Tokenizer.vocab_size())}
+
     def __init__(
         self,
         commands: COMMANDS_TYPE,
@@ -43,6 +45,7 @@ class VLLMEngine(MinimalEngine):
         super().__init__(commands, options, stderr, draw_or_resign, game, name, **popen_args)
         port = os.environ.get("VLLM_PORT", 8000)
         self.api_url = f"http://localhost:{port}/v1/completions"
+        self.model_name = os.environ.get("VLLM_MODEL", "")
         self.game = game
         if game is None:
             self.game_info = {
@@ -54,8 +57,8 @@ class VLLMEngine(MinimalEngine):
             self.bot_is_white = True
         else:
             self.game_info = {
-                "seconds_per_side": str(game.clock_initial.seconds),
-                "increment": str(game.clock_increment.seconds),
+                "seconds_per_side": str(int(game.clock_initial.total_seconds())),
+                "increment": str(int(game.clock_increment.total_seconds())),
             }
             self.opponent_elo = game.opponent.rating
             self.target_elo = game.opponent.rating
@@ -73,7 +76,7 @@ class VLLMEngine(MinimalEngine):
         if isinstance(root_moves, list):
             legal_moves = [move for move in legal_moves if move in root_moves]
 
-        logit_bias = {i: -100.0 for i in range(Tokenizer.vocab_size())}
+        logit_bias = self._base_logit_bias.copy()
         for move in legal_moves:
             logit_bias[Tokenizer.token_to_idx[f"<move:{move.uci()}>"]] = 0.0
         logit_bias[Tokenizer.token_to_idx[TerminationTokens.NORMAL_TERMINATION.value]] = 0.0
@@ -92,6 +95,7 @@ class VLLMEngine(MinimalEngine):
         )
 
         payload = {
+            "model": self.model_name,
             "prompt": prompt,
             "max_tokens": 1,
             "temperature": 1.0,
